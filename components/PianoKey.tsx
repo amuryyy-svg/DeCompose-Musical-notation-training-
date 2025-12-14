@@ -23,13 +23,21 @@ export const PianoKey: React.FC<PianoKeyProps> = ({
   const isWhite = noteData.type === 'white';
   
   // Base structural classes
-  // White keys need transition-all (or transform/colors) for the press effect.
-  // Black keys MUST NOT have background transition to avoid the "disappearing/blinking" glitch when switching from gradient to solid color.
+  // White keys need transition-all for the press effect.
+  // Black keys MUST NOT have background transition to avoid the "disappearing/blinking" glitch when switching gradient.
   const baseClasses = `
     relative flex flex-col justify-end items-center pb-3 select-none cursor-pointer
     ease-out
-    ${isWhite ? 'z-0 rounded-b-[4px] transition-all duration-75' : 'z-10 w-10 -mx-[1.25rem] h-40 rounded-b-[3px] transition-none'}
+    ${isWhite ? 'z-0 rounded-b-[4px] transition-all duration-75' : 'z-10 w-10 -mx-[1.25rem] h-40 rounded-b-[3px]'}
   `;
+
+  // Explicitly disable transition for black keys via inline style to be safe
+  const inlineStyle = isWhite ? {} : { transition: 'none' };
+  
+  // Dimensions for white keys
+  const whiteKeyDimensions = isWhite ? { width: '4.5rem', height: '18rem', marginLeft: '1px', marginRight: '1px' } : {};
+  
+  const mergedStyle = { ...inlineStyle, ...whiteKeyDimensions };
 
   // Visual Styling Logic
   let visualStyle = '';
@@ -43,18 +51,15 @@ export const PianoKey: React.FC<PianoKeyProps> = ({
       visualStyle = 'bg-[#fdfdfd] shadow-[0_4px_5px_rgba(0,0,0,0.1),inset_0_-5px_10px_rgba(0,0,0,0.02)] active:shadow-none';
     }
   } else {
+    // For Black Keys, we use GRADIENTS for both states to prevent interpolation glitches (transparent flash).
     if (isActive) {
-      // Reverted to a darker black/gray as requested, ensuring it's solid to prevent blink
-      visualStyle = 'bg-[#1a1a1a] shadow-none'; 
+      visualStyle = 'bg-gradient-to-b from-gray-900 to-black shadow-none'; // Active state
     } else if (isLessonTarget) {
       visualStyle = 'bg-gray-800 border-2 border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)]';
     } else {
       visualStyle = 'bg-gradient-to-b from-gray-800 to-black shadow-[0_3px_5px_rgba(0,0,0,0.4),inset_0_1px_2px_rgba(255,255,255,0.2)]';
     }
   }
-
-  // Dimensions for white keys
-  const whiteKeyStyle = isWhite ? { width: '4.5rem', height: '18rem', marginLeft: '1px', marginRight: '1px' } : {};
 
   // Target Marker (Circle)
   const TargetMarker = isLessonTarget && !isActive ? (
@@ -66,7 +71,7 @@ export const PianoKey: React.FC<PianoKeyProps> = ({
   return (
     <div
       className={`${baseClasses} ${visualStyle}`}
-      style={whiteKeyStyle}
+      style={mergedStyle}
       onMouseDown={() => onMouseDown(noteData)}
       onMouseUp={() => onMouseUp(noteData)}
       onMouseLeave={() => isActive && onMouseUp(noteData)}

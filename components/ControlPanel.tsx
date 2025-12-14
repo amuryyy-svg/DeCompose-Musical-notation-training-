@@ -117,26 +117,28 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     return (
       <div className="w-full max-w-4xl mb-12 animate-fade-in flex flex-col gap-10 items-center">
          
-         {/* Input Field */}
-         <div className="w-full max-w-2xl relative group flex justify-center items-center">
-            {/* Blinking Stick (Cursor simulation when not focused or empty) - Visual decoration */}
-            <div className={`absolute pointer-events-none flex items-center justify-center inset-0 text-5xl font-light text-white opacity-20 ${prompt ? 'hidden' : ''}`}>
-               <span className="opacity-0">{t.placeholder}</span>
-               <span className="ml-1 w-[2px] h-10 bg-cyan-400 animate-pulse shadow-[0_0_10px_#22d3ee]"></span>
-            </div>
+         {/* Input Field Area */}
+         <div className="w-full max-w-2xl relative group flex flex-col justify-center items-center">
+            <div className="relative w-full flex justify-center items-center">
+                {/* Blinking Stick (Cursor simulation when not focused or empty) */}
+                <div className={`absolute pointer-events-none flex items-center justify-center inset-0 text-5xl font-light text-white opacity-20 ${prompt ? 'hidden' : ''}`}>
+                   <span className="opacity-0">{t.placeholder}</span>
+                   <span className="ml-1 w-[2px] h-10 bg-cyan-400 animate-pulse shadow-[0_0_10px_#22d3ee]"></span>
+                </div>
 
-            <input 
-              type="text" 
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isLoading}
-              placeholder={t.placeholder}
-              className={`w-full bg-transparent text-5xl text-center py-4 text-white placeholder-gray-800 focus:outline-none transition-colors font-light caret-cyan-400 ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
-            />
+                <input 
+                  type="text" 
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={isLoading}
+                  placeholder={t.placeholder}
+                  className={`w-full bg-transparent text-5xl text-center py-4 text-white placeholder-gray-800 focus:outline-none transition-colors font-light caret-cyan-400 ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+                />
+            </div>
             
-            {/* Enter Button overlay - Adjusted position 5px lower */}
-            <div className={`absolute right-0 top-0 h-full flex items-center transition-opacity translate-y-[5px] ${prompt || isLoading ? 'opacity-100' : 'opacity-0'}`}>
+            {/* Status / Enter Button Area - CENTERED BELOW INPUT and lowered */}
+            <div className={`h-8 mt-4 flex items-center justify-center transition-opacity duration-300 ${prompt || isLoading ? 'opacity-100' : 'opacity-0'}`}>
                <button 
                 onClick={() => handleGenerate()}
                 disabled={isLoading}

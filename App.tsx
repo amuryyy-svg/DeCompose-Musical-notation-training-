@@ -25,10 +25,11 @@ const App: React.FC = () => {
   const [isStepComplete, setIsStepComplete] = useState(false);
   const [canSkipStep, setCanSkipStep] = useState(false);
 
-  // Generate 3 sets of keys
-  const leftKeys = useMemo(() => generatePianoKeys(baseOctave - 1), [baseOctave]);
+  // Generate 3 sets of keys. 
+  // Since each set covers 2 octaves, we shift the side views by 2 units to avoid overlap.
+  const leftKeys = useMemo(() => generatePianoKeys(baseOctave - 2), [baseOctave]);
   const centerKeys = useMemo(() => generatePianoKeys(baseOctave), [baseOctave]);
-  const rightKeys = useMemo(() => generatePianoKeys(baseOctave + 1), [baseOctave]);
+  const rightKeys = useMemo(() => generatePianoKeys(baseOctave + 2), [baseOctave]);
 
   // Map physical keys to note definitions
   const codeToNoteMap = useMemo(() => {
@@ -165,8 +166,9 @@ const App: React.FC = () => {
     if (note) {
       e.preventDefault(); 
       let finalMidi = note.midi;
-      if (shiftLeftPressed.current) finalMidi -= 12;
-      if (shiftRightPressed.current) finalMidi += 12;
+      // Shift by 24 semitones (2 octaves) because the keyboard map covers 2 octaves
+      if (shiftLeftPressed.current) finalMidi -= 24;
+      if (shiftRightPressed.current) finalMidi += 24;
       playNote(finalMidi);
     }
   }, [codeToNoteMap, playNote, handleNextStep]);
@@ -186,8 +188,10 @@ const App: React.FC = () => {
     const note = codeToNoteMap[e.code];
     if (note) {
       stopNote(note.midi);
-      stopNote(note.midi - 12);
+      stopNote(note.midi - 12); // Cleanup shifted notes logic if needed, though exact MIDI is better
       stopNote(note.midi + 12);
+      stopNote(note.midi - 24);
+      stopNote(note.midi + 24);
     }
   }, [codeToNoteMap, stopNote]);
 
@@ -268,9 +272,10 @@ const App: React.FC = () => {
       {/* Piano Section */}
       <div className="w-full flex-grow-0 flex items-end justify-center pb-8 px-4 overflow-visible">
         <div className="flex justify-center origin-bottom transform scale-75 md:scale-90 lg:scale-100 xl:scale-110 transition-transform duration-500">
-           {renderOctave(leftKeys, shiftState === 'left' ? 1 : 0.3, `${t.octaves} ${baseOctave - 1}`)}
+           {/* Shifted by 2 octaves for visual coherence */}
+           {renderOctave(leftKeys, shiftState === 'left' ? 1 : 0.3, `${t.octaves} ${baseOctave - 2}`)}
            {renderOctave(centerKeys, shiftState === 'none' ? 1 : 0.3, `${t.octaves} ${baseOctave}`)}
-           {renderOctave(rightKeys, shiftState === 'right' ? 1 : 0.3, `${t.octaves} ${baseOctave + 1}`)}
+           {renderOctave(rightKeys, shiftState === 'right' ? 1 : 0.3, `${t.octaves} ${baseOctave + 2}`)}
         </div>
       </div>
 
