@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { audioService } from './services/audioService';
 import { generatePianoKeys, normalizeNoteName, getFreq } from './constants';
-import { NoteDefinition, Lesson, Language } from './types';
+import { NoteDefinition, Lesson, Language, ExamSession } from './types';
 import { PianoKey } from './components/PianoKey';
 import { ControlPanel } from './components/ControlPanel';
 
@@ -23,9 +23,20 @@ const App: React.FC = () => {
   // Lesson State
   const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [playedSequence, setPlayedSequence] = useState<string[]>([]);
   const [isStepComplete, setIsStepComplete] = useState(false);
   const [canSkipStep, setCanSkipStep] = useState(false);
+  
+  // Lesson Logic: Sequence Matching
+  const [playedSequence, setPlayedSequence] = useState<string[]>([]);
+
+  // Exam State
+  const [isExamMode, setIsExamMode] = useState(false);
+  const [currentExam, setCurrentExam] = useState<ExamSession | null>(null);
+  const [examFeedback, setExamFeedback] = useState<'none' | 'success' | 'failure'>('none');
+  
+  // Exam Hint System: 
+  // 'idle' (0-15s) -> 'hintReady' (Button shows) -> 'hintActive' (Visuals ON, 0-15s wait) -> 'skipReady' (Skip button shows)
+  const [examHintState, setExamHintState] = useState<'idle' | 'hintReady' | 'hintActive' | 'skipReady'>('idle');
 
   // Generate keys. Always generate them to maintain DOM structure for flexbox alignment.
   // We will hide invalid octaves visually using opacity.
@@ -51,9 +62,14 @@ const App: React.FC = () => {
   };
 
   const activeMidisRef = useRef<Set<number>>(new Set());
+  // Refs for async access in event handlers
   const currentStepRef = useRef(currentLesson?.steps[currentStepIndex]);
   const isStepCompleteRef = useRef(isStepComplete);
   const canSkipStepRef = useRef(canSkipStep);
+  const isExamModeRef = useRef(isExamMode);
+  const currentExamRef = useRef(currentExam);
+  const examFeedbackRef = useRef(examFeedback);
+  const examHintStateRef = useRef(examHintState);
   
   const shiftLeftPressed = useRef(false);
   const shiftRightPressed = useRef(false);
@@ -63,9 +79,26 @@ const App: React.FC = () => {
     currentStepRef.current = currentLesson ? currentLesson.steps[currentStepIndex] : undefined; 
     isStepCompleteRef.current = isStepComplete;
     canSkipStepRef.current = canSkipStep;
-  }, [currentLesson, currentStepIndex, isStepComplete, canSkipStep]);
+    isExamModeRef.current = isExamMode;
+    currentExamRef.current = currentExam;
+    examFeedbackRef.current = examFeedback;
+    examHintStateRef.current = examHintState;
+  }, [currentLesson, currentStepIndex, isStepComplete, canSkipStep, isExamMode, currentExam, examFeedback, examHintState]);
 
   // --- Handlers ---
+
+  const handleHome = () => {
+    setCurrentLesson(null);
+    setCurrentStepIndex(0);
+    setIsExamMode(false);
+    setCurrentExam(null);
+    setExamFeedback('none');
+    setExamHintState('idle');
+    setPlayedSequence([]);
+    setCanSkipStep(false);
+    setActiveMidis(new Set());
+    setIsLoading(false);
+  };
 
   const handleLessonStart = (lesson: Lesson) => {
     setCurrentLesson(lesson);
@@ -73,6 +106,20 @@ const App: React.FC = () => {
     setPlayedSequence([]);
     setIsStepComplete(false);
     setCanSkipStep(false);
+    
+    // Disable exam mode
+    setIsExamMode(false);
+    setCurrentExam(null);
+  };
+
+  const handleExamStart = (exam: ExamSession) => {
+    setCurrentLesson(null);
+    setIsExamMode(true);
+    setCurrentExam(exam);
+    setExamFeedback('none');
+    setExamHintState('idle'); 
+    setCanSkipStep(false); 
+    setActiveMidis(new Set());
   };
 
   const handleNextStep = useCallback(() => {
@@ -100,18 +147,101 @@ const App: React.FC = () => {
     }
   }, [currentLesson, currentStepIndex]);
 
+  const handleNextExamQuestion = useCallback(() => {
+    if (!currentExam) return;
+    
+    // Clear feedback and hints
+    setExamFeedback('none');
+    setExamHintState('idle');
+    setCanSkipStep(false);
+    setActiveMidis(new Set());
+
+    const nextIndex = currentExam.currentIndex + 1;
+    if (nextIndex < currentExam.questions.length) {
+      setCurrentExam({
+        ...currentExam,
+        currentIndex: nextIndex
+      });
+    } else {
+      // Exam Finished - for now just exit to menu
+      setIsExamMode(false);
+      setCurrentExam(null);
+    }
+  }, [currentExam]);
+
+  // Handle Hint Activation
+  const handleShowHint = useCallback(() => {
+    setExamHintState('hintActive');
+  }, []);
+
+  // Exam Hint Timer Logic
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+
+    if (isExamMode && currentExam && examFeedback !== 'success') {
+      if (examHintState === 'idle') {
+        // Phase 1: Wait 15s to show "Hint" button
+        timer = setTimeout(() => {
+          setExamHintState('hintReady');
+        }, 15000);
+      } else if (examHintState === 'hintActive') {
+        // Phase 2: Hint is active. Wait 15s to show "Skip" button
+        timer = setTimeout(() => {
+          setExamHintState('skipReady');
+        }, 15000);
+      }
+    }
+
+    return () => clearTimeout(timer);
+  }, [isExamMode, currentExam?.currentIndex, examFeedback, examHintState]);
+
+
+  // Smart Validation for Exam Mode
+  const validateExamInput = useCallback((activeNotes: Set<number>) => {
+    const exam = currentExamRef.current;
+    if (!exam || examFeedbackRef.current === 'success') return; // Don't validate if already correct
+    
+    const question = exam.questions[exam.currentIndex];
+    const pattern = question.pattern;
+    const playedMidis = Array.from(activeNotes).sort((a, b) => a - b);
+    
+    if (playedMidis.length === 0) return;
+    
+    // If pattern requires more notes than played, wait.
+    if (playedMidis.length < pattern.length) return;
+
+    // Normalize played notes to relative intervals from the root (lowest note)
+    const root = playedMidis[0];
+    const relativeIntervals = playedMidis.map(m => m - root);
+    
+    // Check if relativeIntervals matches the pattern exactly
+    const isMatch = relativeIntervals.length === pattern.length && 
+                    relativeIntervals.every((val, index) => val === pattern[index]);
+
+    if (isMatch) {
+      setExamFeedback('success');
+      // No auto-advance. User must press Enter or click Next.
+    }
+  }, []);
+
+
   const playNote = useCallback((midi: number) => {
     if (activeMidisRef.current.has(midi)) return; 
 
     const freq = getFreq(midi);
     audioService.playNote(freq, midi);
     
-    setActiveMidis(prev => {
-      const newSet = new Set(prev);
-      newSet.add(midi);
-      return newSet;
-    });
+    const newActiveMidis = new Set(activeMidisRef.current);
+    newActiveMidis.add(midi);
+    setActiveMidis(newActiveMidis);
 
+    // EXAM MODE LOGIC
+    if (isExamModeRef.current) {
+      validateExamInput(newActiveMidis);
+      return;
+    }
+
+    // LESSON MODE LOGIC
     const step = currentStepRef.current;
     if (step && !isStepCompleteRef.current) {
       const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -128,16 +258,20 @@ const App: React.FC = () => {
         return newSeq;
       });
     }
-  }, []);
+  }, [validateExamInput]);
 
   const stopNote = useCallback((midi: number) => {
     audioService.stopNote(midi);
     setActiveMidis(prev => {
       const newSet = new Set(prev);
       newSet.delete(midi);
+      
+      if (isExamModeRef.current && newSet.size > 0) {
+         validateExamInput(newSet);
+      }
       return newSet;
     });
-  }, []);
+  }, [validateExamInput]);
 
   // --- Keyboard Logic ---
 
@@ -152,9 +286,28 @@ const App: React.FC = () => {
     }
 
     if (e.code === 'Enter') {
-      if (isStepCompleteRef.current || canSkipStepRef.current) {
+      // Lesson Mode
+      if (currentLesson && (isStepCompleteRef.current || canSkipStepRef.current)) {
         handleNextStep();
         return;
+      }
+      // Exam Mode
+      if (isExamModeRef.current) {
+        // 1. Success -> Next
+        if (examFeedbackRef.current === 'success') {
+          handleNextExamQuestion();
+          return;
+        }
+        // 2. Hint available -> Activate Hint
+        if (examHintStateRef.current === 'hintReady') {
+           handleShowHint();
+           return;
+        }
+        // 3. Skip available -> Skip
+        if (examHintStateRef.current === 'skipReady') {
+          handleNextExamQuestion();
+          return;
+        }
       }
     }
 
@@ -168,17 +321,13 @@ const App: React.FC = () => {
     }
 
     if (e.code === 'ShiftLeft') {
-      // Prevent shifting if we are at the lowest octave (1) to avoid negative octaves
       if (baseOctave < 2) return;
-      
       shiftLeftPressed.current = true;
       setShiftState('left');
       return;
     }
     if (e.code === 'ShiftRight') {
-      // Prevent shifting if we are at the highest octave (7) to avoid exceeding octave 8
       if (baseOctave > 6) return;
-      
       shiftRightPressed.current = true;
       setShiftState('right');
       return;
@@ -188,12 +337,11 @@ const App: React.FC = () => {
     if (note) {
       e.preventDefault(); 
       let finalMidi = note.midi;
-      // Shift by 24 semitones (2 octaves)
       if (shiftLeftPressed.current) finalMidi -= 24;
       if (shiftRightPressed.current) finalMidi += 24;
       playNote(finalMidi);
     }
-  }, [codeToNoteMap, playNote, handleNextStep, baseOctave]);
+  }, [codeToNoteMap, playNote, handleNextStep, handleNextExamQuestion, handleShowHint, currentLesson, baseOctave]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     if (e.code === 'ShiftLeft') {
@@ -235,13 +383,9 @@ const App: React.FC = () => {
   };
 
   const renderOctave = (keys: NoteDefinition[], opacity: number, octaveLabel: string) => {
-    // If keys are generated but the octave is out of valid piano bounds (e.g. -1 or 9),
-    // we make it transparent but keep it in the DOM for layout structure.
-    // Valid visual range: Octave 0 to 8.
     const octaveNum = keys[0]?.octave ?? -999;
     const isVisible = octaveNum >= 0 && octaveNum <= 8;
     
-    // If invisible, force opacity 0 and disable pointer events
     const finalOpacity = isVisible ? opacity : 0;
     const pointerEvents = isVisible ? 'auto' : 'none';
 
@@ -256,23 +400,42 @@ const App: React.FC = () => {
          <div className="flex relative justify-center">
           {getVisualKeys(keys).map((note) => {
             const noteName = `${note.note}${note.octave}`;
-            const currentStep = currentLesson ? currentLesson.steps[currentStepIndex] : null;
-            const highlights = currentStep ? currentStep.highlight.map(h => normalizeNoteName(h)) : [];
+            let highlights: string[] = [];
+
+            // LESSON HIGHLIGHT
+            if (currentLesson) {
+              const currentStep = currentLesson.steps[currentStepIndex];
+              highlights = currentStep.highlight.map(h => normalizeNoteName(h));
+            }
+            
+            // EXAM HINT HIGHLIGHT
+            // Show highlights if hint is active OR skip is ready (since skip comes after hint active)
+            if (isExamMode && (examHintState === 'hintActive' || examHintState === 'skipReady') && currentExam) {
+              const q = currentExam.questions[currentExam.currentIndex];
+              if (q.exampleSolution) {
+                highlights = q.exampleSolution.map(h => normalizeNoteName(h));
+              }
+            }
+
             const isTarget = highlights.includes(noteName);
             
-            // Check if active
-            const isNoteActive = Array.from(activeMidis).some((m: number) => m % 12 === note.midi % 12);
+            // STRICT check (is this specific key pressed?)
+            const isNoteActive = activeMidis.has(note.midi);
             
-            // Check if NEXT semitone (white key usually) is active to trigger Flat notation on this key
-            const isNextSemitoneActive = Array.from(activeMidis).some((m: number) => m % 12 === (note.midi + 1) % 12);
+            // GLOBAL check (is this note name pressed anywhere?)
+            const isGlobalActive = [...activeMidis].some(m => m % 12 === note.midi % 12);
+
+            const isNextSemitoneActive = activeMidis.has(note.midi + 1);
   
             return (
               <PianoKey 
                 key={note.midi}
                 noteData={note}
                 isActive={isNoteActive}
+                isGlobalActive={isGlobalActive} // Pass global state
                 isNextSemitoneActive={isNextSemitoneActive}
                 isLessonTarget={isTarget}
+                isBlindMode={isExamMode && !(examHintState === 'hintActive' || examHintState === 'skipReady')} // Blind unless hint active
                 showKeyLabel={showKeyLabels}
                 showNoteLabel={showNoteLabels}
                 accidentalMode={accidentalMode}
@@ -292,13 +455,27 @@ const App: React.FC = () => {
     next: lang === 'ru' ? 'Далее' : 'Next',
   };
 
+  // Exam Visual Border feedback
+  const borderClass = examFeedback === 'success' ? 'border-[3px] border-green-500' : (examFeedback === 'failure' ? 'border-[3px] border-red-500' : '');
+
   return (
-    <div className="h-screen w-screen bg-[#0a0a0a] flex flex-col items-center overflow-hidden">
+    <div className={`h-screen w-screen bg-[#0a0a0a] flex flex-col items-center overflow-hidden box-border ${borderClass} transition-all duration-300`}>
       
-      {/* Top Section */}
-      <div className="flex-1 w-full flex flex-col justify-center items-center px-8 pt-12 pb-4 min-h-[30vh]">
+      {/* Top Section - Use flex-1 to occupy space and center ControlPanel vertically */}
+      <div className="flex-1 w-full flex flex-col justify-center items-center px-8 min-h-[40vh]">
         
-        {/* Glossary Icon (Absolute Top Right) */}
+        {/* Home Icon - Left */}
+        <button
+          onClick={handleHome}
+          className={`absolute top-8 left-8 text-gray-600 hover:text-white transition-all duration-300 ${currentLesson || isExamMode ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          title={lang === 'ru' ? "На главную" : "Home"}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+          </svg>
+        </button>
+
+        {/* Glossary Icon */}
         <button 
           onClick={() => setShowGlossary(true)}
           className="absolute top-8 right-8 text-gray-600 hover:text-white transition-colors"
@@ -311,6 +488,9 @@ const App: React.FC = () => {
 
         <ControlPanel 
           onLessonStart={handleLessonStart}
+          onExamStart={handleExamStart}
+          onNextExamQuestion={handleNextExamQuestion}
+          onShowHint={handleShowHint}
           isLoading={isLoading}
           setLoading={setIsLoading}
           currentLesson={currentLesson}
@@ -320,6 +500,10 @@ const App: React.FC = () => {
           onNextStep={handleNextStep}
           onPrevStep={handlePrevStep}
           setCanSkipStep={setCanSkipStep}
+          isExamMode={isExamMode}
+          currentExam={currentExam}
+          examFeedback={examFeedback}
+          examHintState={examHintState}
           lang={lang}
           showGlossary={showGlossary}
           setShowGlossary={setShowGlossary}
@@ -365,21 +549,23 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Labels Toggles */}
-        <div className="absolute right-8 flex gap-2">
-          <button 
-            onClick={() => setShowKeyLabels(!showKeyLabels)}
-            className={`text-xs font-mono font-bold px-2 py-1 rounded transition-colors ${showKeyLabels ? 'bg-gray-800 text-white' : 'text-gray-600 hover:text-gray-400'}`}
-          >
-            KEY
-          </button>
-          <button 
-            onClick={() => setShowNoteLabels(!showNoteLabels)}
-            className={`text-xs font-mono font-bold px-2 py-1 rounded transition-colors ${showNoteLabels ? 'bg-gray-800 text-white' : 'text-gray-600 hover:text-gray-400'}`}
-          >
-            NOTE
-          </button>
-        </div>
+        {/* Right: Labels Toggles - HIDDEN IN EXAM MODE */}
+        {!isExamMode && (
+          <div className="absolute right-8 flex gap-2">
+            <button 
+              onClick={() => setShowKeyLabels(!showKeyLabels)}
+              className={`text-xs font-mono font-bold px-2 py-1 rounded transition-colors ${showKeyLabels ? 'bg-gray-800 text-white' : 'text-gray-600 hover:text-gray-400'}`}
+            >
+              KEY
+            </button>
+            <button 
+              onClick={() => setShowNoteLabels(!showNoteLabels)}
+              className={`text-xs font-mono font-bold px-2 py-1 rounded transition-colors ${showNoteLabels ? 'bg-gray-800 text-white' : 'text-gray-600 hover:text-gray-400'}`}
+            >
+              NOTE
+            </button>
+          </div>
+        )}
       </div>
 
     </div>

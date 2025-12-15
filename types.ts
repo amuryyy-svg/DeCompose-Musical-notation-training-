@@ -1,6 +1,11 @@
 
 export type Language = 'ru' | 'en';
 
+export type LocalizedContent = {
+  ru: string;
+  en: string;
+};
+
 export interface NoteDefinition {
   note: string; // e.g., "C"
   octave: number; // e.g., 4
@@ -12,16 +17,31 @@ export interface NoteDefinition {
 }
 
 export interface LessonStep {
-  title: string; // Заголовок шага (например "Полутон")
-  explanation: string; // Текст объяснения
-  targets: string[]; // Ноты, которые нужно сыграть (например ["C4", "C#4"])
-  highlight: string[]; // Ноты, которые нужно визуально подсветить
+  title: LocalizedContent; 
+  explanation: LocalizedContent; 
+  targets: string[]; // Notes to play e.g. ["C4"]
+  highlight: string[]; // Visual highlights
 }
 
 export interface Lesson {
-  title: string;
-  description: string;
+  title: LocalizedContent;
+  description: LocalizedContent;
   steps: LessonStep[];
+}
+
+export interface ExamQuestion {
+  id: string;
+  question: LocalizedContent; 
+  type: 'interval' | 'chord' | 'scale';
+  pattern: number[]; // Relative semitones
+  exampleSolution: string[]; // Concrete notes for the hint system (e.g. ["C3", "E3", "G3"])
+}
+
+export interface ExamSession {
+  questions: ExamQuestion[];
+  currentIndex: number;
+  correctAnswers: number;
+  isFinished: boolean;
 }
 
 export interface ActiveNote {

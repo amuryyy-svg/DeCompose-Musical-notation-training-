@@ -1,9 +1,16 @@
-import { NoteDefinition } from './types';
+
+import { NoteDefinition, LocalizedContent, Language } from './types';
 
 const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 // Frequencies relative to A4 (440Hz, MIDI 69)
 export const getFreq = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12);
+
+// Helper to get text based on current language
+export const getLocalizedText = (content: LocalizedContent | string, lang: Language): string => {
+  if (typeof content === 'string') return content;
+  return content[lang] || content['en'] || '';
+};
 
 // Mapping using physical key codes (works regardless of language layout)
 // Layout requested:
