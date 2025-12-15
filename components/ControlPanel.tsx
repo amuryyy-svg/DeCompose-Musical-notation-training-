@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Lesson, LessonStep, Language } from '../types';
 import { generateLesson } from '../services/geminiService';
+import { GLOSSARY_DATA, TOPICS } from '../constants';
 
 interface ControlPanelProps {
   onLessonStart: (lesson: Lesson) => void;
@@ -11,27 +12,12 @@ interface ControlPanelProps {
   currentStep: LessonStep | null;
   isStepComplete: boolean;
   onNextStep: () => void;
+  onPrevStep: () => void;
   setCanSkipStep: (canSkip: boolean) => void;
   lang: Language;
+  showGlossary: boolean;
+  setShowGlossary: (show: boolean) => void;
 }
-
-const TOPICS = [
-  { id: '1', ru: 'Ноты и Октавы', en: 'Notes & Octaves' },
-  { id: '2', ru: 'Тон и Полутон', en: 'Tone & Semitone' },
-  { id: '3', ru: 'Интервалы: Основы', en: 'Basic Intervals' },
-  { id: '4', ru: 'Малые и Большие Терции', en: 'Major & Minor Thirds' },
-  { id: '5', ru: 'Квинта и Кварта', en: 'Perfect Fifth & Fourth' },
-  { id: '6', ru: 'Мажорная гамма', en: 'Major Scale' },
-  { id: '7', ru: 'Минорная гамма', en: 'Minor Scale' },
-  { id: '8', ru: 'Трезвучия (Мажор/Минор)', en: 'Major/Minor Triads' },
-  { id: '9', ru: 'Обращения: Секстаккорд', en: 'Inversions: Sixth Chord' },
-  { id: '10', ru: 'Ступени лада', en: 'Scale Degrees' },
-  { id: '11', ru: 'Гармония: T-S-D', en: 'Harmony: T-S-D' },
-  { id: '12', ru: 'Септаккорды', en: 'Seventh Chords' },
-  { id: '13', ru: 'Лидийский лад', en: 'Lydian Mode' },
-  { id: '14', ru: 'Тональность', en: 'Tonality' },
-  { id: '15', ru: 'Модуляция', en: 'Modulation' },
-];
 
 // Helper to render text with opacity emphasis
 const RenderText: React.FC<{ text: string }> = ({ text }) => {
@@ -61,10 +47,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   currentStep,
   isStepComplete,
   onNextStep,
+  onPrevStep,
   setCanSkipStep,
-  lang
+  lang,
+  showGlossary,
+  setShowGlossary
 }) => {
   const [prompt, setPrompt] = useState('');
+  const [glossarySearch, setGlossarySearch] = useState('');
   const [showSkipButton, setShowSkipButton] = useState(false);
 
   const t = {
@@ -72,8 +62,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     generating: lang === 'ru' ? "ГЕНЕРИРУЮ..." : "GENERATING...",
     enter: "ENTER",
     next: lang === 'ru' ? "Далее" : "Next",
+    back: lang === 'ru' ? "Назад" : "Back",
     played: lang === 'ru' ? "Я все сыграл" : "I did it",
-    playNotes: lang === 'ru' ? "Сыграйте ноты" : "Play notes"
+    playNotes: lang === 'ru' ? "Сыграйте ноты" : "Play notes",
+    glossary: lang === 'ru' ? "СЛОВАРЬ" : "GLOSSARY",
+    search: lang === 'ru' ? "Поиск..." : "Search..."
   };
 
   // Timer for "I did it" button
@@ -112,6 +105,55 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     }
   };
 
+  // GLOSSARY MODAL
+  if (showGlossary) {
+    const filteredGlossary = GLOSSARY_DATA[lang].filter(item => 
+      item.term.toLowerCase().includes(glossarySearch.toLowerCase()) || 
+      item.def.toLowerCase().includes(glossarySearch.toLowerCase())
+    );
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in" onClick={() => setShowGlossary(false)}>
+        {/* Modal Window */}
+        <div className="bg-[#111] p-8 rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col m-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+          
+          {/* Header with Title and Search */}
+          <div className="flex flex-col md:flex-row justify-between items-center mb-6 pb-2 gap-4">
+             <h2 className="text-xl font-bold tracking-widest text-white">{t.glossary}</h2>
+             
+             <div className="flex items-center gap-4 w-full md:w-auto">
+               <div className="relative w-full md:w-48">
+                  <input 
+                      type="text" 
+                      value={glossarySearch}
+                      onChange={(e) => setGlossarySearch(e.target.value)}
+                      placeholder={t.search}
+                      className="w-full bg-transparent border-none text-right text-white text-sm focus:outline-none placeholder-gray-700 transition-colors"
+                      autoFocus
+                  />
+               </div>
+               <button onClick={() => setShowGlossary(false)} className="text-gray-500 hover:text-white text-xl">✕</button>
+             </div>
+          </div>
+
+          {/* List */}
+          <div className="overflow-y-auto pr-2 custom-scrollbar space-y-6 flex-1">
+            {filteredGlossary.length > 0 ? (
+              filteredGlossary.map((item, idx) => (
+                <div key={idx} className="group">
+                  <h3 className="text-white font-bold text-sm uppercase mb-1 transition-colors">{item.term}</h3>
+                  <p className="text-gray-400 font-light leading-relaxed text-sm">{item.def}</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-gray-600 text-center py-4 text-sm uppercase tracking-widest opacity-50">Nothing found</p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // If no lesson OR if loading (to keep the input visible), show Input
   if (!currentLesson || isLoading) {
     return (
@@ -123,7 +165,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 {/* Blinking Stick (Cursor simulation when not focused or empty) */}
                 <div className={`absolute pointer-events-none flex items-center justify-center inset-0 text-5xl font-light text-white opacity-20 ${prompt ? 'hidden' : ''}`}>
                    <span className="opacity-0">{t.placeholder}</span>
-                   <span className="ml-1 w-[2px] h-10 bg-cyan-400 animate-pulse shadow-[0_0_10px_#22d3ee]"></span>
+                   {/* CHANGED: Removed bg-cyan-400 and shadow-cyan */}
+                   <span className="ml-1 w-[2px] h-10 bg-white/50 animate-pulse"></span>
                 </div>
 
                 <input 
@@ -133,7 +176,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   onKeyDown={handleKeyDown}
                   disabled={isLoading}
                   placeholder={t.placeholder}
-                  className={`w-full bg-transparent text-5xl text-center py-4 text-white placeholder-gray-800 focus:outline-none transition-colors font-light caret-cyan-400 ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+                  // CHANGED: caret-cyan-400 to caret-white
+                  className={`w-full bg-transparent text-5xl text-center py-4 text-white placeholder-gray-800 focus:outline-none transition-colors font-light caret-white ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
                 />
             </div>
             
@@ -170,8 +214,19 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   // Active Lesson View
   if (currentStep) {
     return (
-      <div className="w-full max-w-4xl mb-12 animate-slide-up flex flex-col items-center text-center gap-8">
+      <div className="w-full max-w-4xl mb-12 animate-slide-up flex flex-col items-center text-center gap-8 relative">
         
+        {/* Navigation Wrapper */}
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full pr-8 hidden xl:block">
+           {currentStepIndex > 0 && (
+             <button onClick={onPrevStep} className="text-gray-600 hover:text-white transition-colors p-2">
+               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                </svg>
+             </button>
+           )}
+        </div>
+
         {/* Minimal Progress Line */}
         <div className="w-32 h-[1px] bg-gray-800 rounded-full overflow-hidden">
            <div 
@@ -181,9 +236,17 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         </div>
 
         <div className="flex flex-col gap-6">
-          <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-gray-600">
-            {currentStep.title}
-          </h2>
+          <div className="flex items-center justify-center gap-4">
+             {/* Mobile Back Button */}
+             {currentStepIndex > 0 && (
+               <button onClick={onPrevStep} className="xl:hidden text-gray-600 hover:text-white">
+                 ←
+               </button>
+             )}
+             <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-gray-600">
+               {currentStep.title}
+             </h2>
+          </div>
           
           <div className="max-w-2xl">
             <RenderText text={currentStep.explanation} />
@@ -191,7 +254,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
           <div className="mt-4 h-12 flex items-center justify-center">
             {isStepComplete ? (
-              // Success State (Prioritized over timeout)
+              // Success State
               <button 
                 onClick={onNextStep}
                 className="group flex flex-col items-center gap-1"
@@ -202,7 +265,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <span className="text-[10px] text-gray-600">Enter ↵</span>
               </button>
             ) : showSkipButton ? (
-               // "I did it" State (Timeout)
+               // "I did it" State
                <button 
                 onClick={onNextStep}
                 className="group flex flex-col items-center gap-1 animate-fade-in"

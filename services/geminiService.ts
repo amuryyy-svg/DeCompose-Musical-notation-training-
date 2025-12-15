@@ -1,16 +1,28 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Lesson, Language } from "../types";
+import { TOPICS } from "../constants";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const generateLesson = async (difficulty: 'beginner' | 'intermediate', topic: string, lang: Language): Promise<Lesson | null> => {
   try {
     const langName = lang === 'en' ? 'English' : 'Russian';
+    const curriculum = TOPICS.map(t => lang === 'en' ? t.en : t.ru).join(', ');
+
     const prompt = `
       You are a strict but clear piano teacher.
       
       Topic: "${topic || "Basics: Intervals"}".
       Language: ${langName}.
+
+      CONTEXT - FULL CURRICULUM:
+      ${curriculum}
+
+      CONSTRAINT:
+      Focus ONLY on the requested "${topic}".
+      Do NOT teach concepts that belong to other topics in the curriculum list unless absolutely necessary for the current explanation.
+      If the topic is advanced (e.g., "Major Scale"), assume the student already knows basics like "Tone", "Semitone", and "Notes". Do not re-explain them.
+      If the topic is "Basic Intervals", do not include complex intervals like "Thirds" or "Fifths" if they have their own separate topics in the list.
 
       TASK:
       Create a step-by-step lesson. For EACH step, you MUST provide a specific playing exercise.
