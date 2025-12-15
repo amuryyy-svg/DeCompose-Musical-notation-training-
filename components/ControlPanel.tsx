@@ -1,8 +1,8 @@
-
 import React, { useState, useEffect } from 'react';
-import { Lesson, LessonStep, Language, ExamSession, LocalizedContent } from '../types';
+import { Lesson, LessonStep, Language, ExamSession, LocalizedContent, HistoryNote } from '../types';
 import { generateLesson, generateExam } from '../services/geminiService';
 import { GLOSSARY_DATA, TOPICS, getLocalizedText } from '../constants';
+import { InputHistory } from './InputHistory';
 
 interface ControlPanelProps {
   onLessonStart: (lesson: Lesson) => void;
@@ -29,6 +29,9 @@ interface ControlPanelProps {
   lang: Language;
   showGlossary: boolean;
   setShowGlossary: (show: boolean) => void;
+  
+  // New Prop
+  inputHistory?: HistoryNote[];
 }
 
 // Helper to render text with opacity emphasis
@@ -71,7 +74,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   examHintState,
   lang,
   showGlossary,
-  setShowGlossary
+  setShowGlossary,
+  inputHistory = []
 }) => {
   const [prompt, setPrompt] = useState('');
   const [glossarySearch, setGlossarySearch] = useState('');
@@ -81,9 +85,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const [isExamSetup, setIsExamSetup] = useState(false);
   const [selectedTopics, setSelectedTopics] = useState<Set<string>>(new Set());
 
+  // Track what exactly is loading for better UI feedback
+  const [loadingState, setLoadingState] = useState<'none' | 'lesson' | 'exam'>('none');
+
   const t = {
     placeholder: lang === 'ru' ? "Чему научить?" : "What to learn?",
-    generating: lang === 'ru' ? "ГЕНЕРИРУЮ..." : "GENERATING...",
+    generatingLesson: lang === 'ru' ? "ГЕНЕРИРУЮ УРОК..." : "GENERATING LESSON...",
+    generatingExam: lang === 'ru' ? "ГЕНЕРИРУЮ ТЕСТ..." : "GENERATING TEST...",
     enter: "ENTER",
     next: lang === 'ru' ? "Далее" : "Next",
     back: lang === 'ru' ? "Назад" : "Back",
@@ -139,10 +147,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     if (!p.trim() || isLoading) return;
     
     setLoading(true);
+    setLoadingState('lesson');
     if (topicPrompt) setPrompt(topicPrompt);
     
     const lesson = await generateLesson('beginner', p, lang);
     setLoading(false);
+    setLoadingState('none');
     if (lesson) {
       onLessonStart(lesson);
     }
@@ -151,6 +161,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const handleStartExamGeneration = async () => {
     if (selectedTopics.size === 0 || isLoading) return;
     setLoading(true);
+    setLoadingState('exam');
     const topicsArray = Array.from(selectedTopics).map(id => {
       const topic = TOPICS.find(t => t.id === id);
       return lang === 'ru' ? topic?.ru || '' : topic?.en || '';
@@ -158,6 +169,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     
     const exam = await generateExam(topicsArray, lang);
     setLoading(false);
+    setLoadingState('none');
     if (exam) {
       onExamStart(exam);
       setIsExamSetup(false);
@@ -175,6 +187,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     if (e.key === 'Enter' && !isLoading) {
       handleGenerate();
     }
+  };
+
+  const getLoadingText = () => {
+    if (loadingState === 'exam') return t.generatingExam;
+    return t.generatingLesson;
   };
 
   // Shared Styles
@@ -269,7 +286,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
              disabled={selectedTopics.size === 0 || isLoading}
              className={`text-xs uppercase tracking-widest border-b border-transparent transition-all pb-1 ${selectedTopics.size > 0 && !isLoading ? 'text-white hover:border-white font-bold' : (isLoading ? 'text-gray-500 animate-pulse' : 'text-gray-800 cursor-not-allowed')}`}
            >
-             {isLoading ? t.generating : t.startTest}
+             {isLoading ? t.generatingExam : t.startTest}
            </button>
         </div>
       </div>
@@ -299,6 +316,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                  {getLocalizedText(question.question, lang)}
               </span>
             </div>
+            
+            {/* Input History */}
+            <InputHistory history={inputHistory} />
             
             <div className="mt-4 h-12 flex items-center justify-center">
                {isSuccess ? (
@@ -378,7 +398,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               disabled={isLoading}
               className={`text-xs text-gray-600 hover:text-white uppercase tracking-widest border-b border-transparent hover:border-gray-600 transition-all pb-1 ${isLoading ? 'text-gray-500 animate-pulse border-none' : ''}`}
             >
-                {isLoading ? t.generating : t.startExam}
+                {isLoading ? getLoadingText() : t.startExam}
             </button>
          </div>
       </div>
@@ -405,6 +425,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
              <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-gray-600">{getLocalizedText(currentStep.title, lang)}</h2>
           </div>
           <div className="max-w-2xl"><RenderText text={currentStep.explanation} lang={lang} /></div>
+          
+          {/* Input History for Lesson (optional, but good for consistency) */}
+          <InputHistory history={inputHistory} />
+
           <div className="mt-4 h-12 flex items-center justify-center">
             {isStepComplete ? (
               <button onClick={onNextStep} className="group flex flex-col items-center gap-1">

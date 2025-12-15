@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { Lesson, Language, ExamSession } from "../types";
 import { TOPICS } from "../constants";
@@ -18,39 +17,29 @@ const LocalizedContentSchema = {
 
 export const generateLesson = async (difficulty: 'beginner' | 'intermediate', topic: string, lang: Language): Promise<Lesson | null> => {
   try {
-    const curriculum = TOPICS.map(t => `${t.ru} / ${t.en}`).join(', ');
-
     const prompt = `
-      You are a strict but clear piano teacher.
-      Topic: "${topic || "Basics: Intervals"}".
-
-      CONTEXT - FULL CURRICULUM:
-      ${curriculum}
-
-      CONSTRAINT:
-      Focus ONLY on the requested "${topic}".
-      Do NOT teach concepts that belong to other topics in the curriculum list unless absolutely necessary.
+      Create a step-by-step piano lesson.
+      Topic: "${topic}".
       
-      TASK:
-      Create a step-by-step lesson.
-      **BILINGUAL OUTPUT REQUIRED**: All text fields (title, explanation, description) MUST be objects with "ru" and "en" keys.
+      Requirements:
+      1.  Output MUST be valid JSON matching the schema.
+      2.  Do NOT include Markdown code blocks (like \`\`\`json). Just the raw JSON.
+      3.  Content must be bilingual (RU and EN).
+      4.  Format note names in the 'explanation' field using bold asterisks, e.g., "**C (C4)**".
 
-      CRITICAL INSTRUCTION FOR NOTE NAMES:
-      In "explanation" text, ALWAYS include the international scientific pitch notation in parentheses.
-      Example EN: "Play the note C (C4)"
-      Example RU: "Нажмите ноту До (C4)"
-      Use Markdown **bold** for notes.
-
-      JSON STRUCTURE:
-      - title: {ru, en}
-      - description: {ru, en}
-      - steps: Array
-        - title: {ru, en}
-        - explanation: {ru, en}
-        - targets: Array of strings (e.g. ["C4", "C#4"]).
-        - highlight: Array of strings.
-
-      Return valid JSON.
+      Structure:
+      {
+        "title": { "ru": "...", "en": "..." },
+        "description": { "ru": "...", "en": "..." },
+        "steps": [
+          {
+            "title": { "ru": "...", "en": "..." },
+            "explanation": { "ru": "...", "en": "..." },
+            "targets": ["C4", "E4"], // Array of note codes
+            "highlight": ["C4", "E4"] // Array of note codes to visually highlight
+          }
+        ]
+      }
     `;
 
     const response = await ai.models.generateContent({

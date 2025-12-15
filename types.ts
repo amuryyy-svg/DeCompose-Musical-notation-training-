@@ -16,6 +16,15 @@ export interface NoteDefinition {
   midi: number;
 }
 
+export interface HistoryNote {
+  id: string;
+  midi: number;
+  name: string;
+  status: 'neutral' | 'success';
+  isFading: boolean;
+  isReleased: boolean;
+}
+
 export interface LessonStep {
   title: LocalizedContent; 
   explanation: LocalizedContent; 

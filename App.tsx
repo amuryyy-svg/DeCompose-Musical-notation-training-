@@ -1,9 +1,37 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { audioService } from './services/audioService';
 import { generatePianoKeys, normalizeNoteName, getFreq } from './constants';
-import { NoteDefinition, Lesson, Language, ExamSession } from './types';
+import { NoteDefinition, Lesson, Language, ExamSession, HistoryNote } from './types';
 import { PianoKey } from './components/PianoKey';
 import { ControlPanel } from './components/ControlPanel';
+
+// Helper to check if played notes fit the pattern (Subset check)
+// This solves the issue where sorting assumes the lowest note is always the root.
+// For a descending pattern [0, -1], if we play (62, 61), simplistic sorting gives [61, 62] -> intervals [0, 1].
+// This function tries every note as a potential root.
+const isPatternMatch = (playedMidis: number[], pattern: number[], strictLength: boolean = false) => {
+    if (playedMidis.length === 0) return false;
+    const patternSet = new Set(pattern);
+
+    // Try every played note as the potential root
+    for (const root of playedMidis) {
+        const intervals = playedMidis.map(m => m - root);
+        
+        // 1. Check if all intervals exist in pattern (Subset check)
+        const isSubset = intervals.every(i => patternSet.has(i));
+        
+        if (!isSubset) continue; // Try next root
+
+        // 2. If strict length check (Final validation), lengths must match
+        if (strictLength) {
+             if (intervals.length === pattern.length) return true;
+        } else {
+             // For "So Far" check, just being a subset is enough
+             return true;
+        }
+    }
+    return false;
+};
 
 const App: React.FC = () => {
   const [baseOctave, setBaseOctave] = useState(3);
@@ -19,6 +47,9 @@ const App: React.FC = () => {
   
   // Shift State for Visualization
   const [shiftState, setShiftState] = useState<'none' | 'left' | 'right'>('none');
+
+  // Input History
+  const [inputHistory, setInputHistory] = useState<HistoryNote[]>([]);
 
   // Lesson State
   const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
@@ -97,6 +128,7 @@ const App: React.FC = () => {
     setPlayedSequence([]);
     setCanSkipStep(false);
     setActiveMidis(new Set());
+    setInputHistory([]);
     setIsLoading(false);
   };
 
@@ -104,6 +136,7 @@ const App: React.FC = () => {
     setCurrentLesson(lesson);
     setCurrentStepIndex(0);
     setPlayedSequence([]);
+    setInputHistory([]);
     setIsStepComplete(false);
     setCanSkipStep(false);
     
@@ -120,6 +153,7 @@ const App: React.FC = () => {
     setExamHintState('idle'); 
     setCanSkipStep(false); 
     setActiveMidis(new Set());
+    setInputHistory([]);
   };
 
   const handleNextStep = useCallback(() => {
@@ -130,6 +164,7 @@ const App: React.FC = () => {
       setIsStepComplete(false);
       setCanSkipStep(false);
       setPlayedSequence([]);
+      setInputHistory([]); // Clear history on step change
     } else {
       setCurrentLesson(null);
       setCurrentStepIndex(0);
@@ -144,6 +179,7 @@ const App: React.FC = () => {
       setIsStepComplete(false); 
       setCanSkipStep(false);
       setPlayedSequence([]);
+      setInputHistory([]); // Clear history on step change
     }
   }, [currentLesson, currentStepIndex]);
 
@@ -155,6 +191,7 @@ const App: React.FC = () => {
     setExamHintState('idle');
     setCanSkipStep(false);
     setActiveMidis(new Set());
+    setInputHistory([]);
 
     const nextIndex = currentExam.currentIndex + 1;
     if (nextIndex < currentExam.questions.length) {
@@ -195,6 +232,33 @@ const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, [isExamMode, currentExam?.currentIndex, examFeedback, examHintState]);
 
+  // Cleanup effect for Lesson Success
+  useEffect(() => {
+    if (isStepComplete && currentLesson && currentStepRef.current) {
+      const step = currentStepRef.current;
+      const targetCount = step.targets.length;
+
+      setInputHistory(prev => {
+        // Identify the last 'targetCount' items as the correct sequence
+        const startIndex = Math.max(0, prev.length - targetCount);
+        
+        return prev.map((n, i) => {
+          if (i >= startIndex) {
+            return { ...n, status: 'success' as const };
+          }
+          return { ...n, isFading: true };
+        });
+      });
+
+      // Remove faded items after animation
+      const timer = setTimeout(() => {
+        setInputHistory(prev => prev.filter(n => !n.isFading));
+      }, 600);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isStepComplete, currentLesson]);
+
 
   // Smart Validation for Exam Mode
   const validateExamInput = useCallback((activeNotes: Set<number>) => {
@@ -203,24 +267,36 @@ const App: React.FC = () => {
     
     const question = exam.questions[exam.currentIndex];
     const pattern = question.pattern;
-    const playedMidis = Array.from(activeNotes).sort((a, b) => a - b);
+    const playedMidis: number[] = Array.from(activeNotes);
     
     if (playedMidis.length === 0) return;
     
     // If pattern requires more notes than played, wait.
     if (playedMidis.length < pattern.length) return;
 
-    // Normalize played notes to relative intervals from the root (lowest note)
-    const root = playedMidis[0];
-    const relativeIntervals = playedMidis.map(m => m - root);
-    
-    // Check if relativeIntervals matches the pattern exactly
-    const isMatch = relativeIntervals.length === pattern.length && 
-                    relativeIntervals.every((val, index) => val === pattern[index]);
+    // Use robust subset/pattern check logic
+    const isMatch = isPatternMatch(playedMidis, pattern, true);
 
     if (isMatch) {
       setExamFeedback('success');
-      // No auto-advance. User must press Enter or click Next.
+      const activeMidiSet = new Set(playedMidis);
+      
+      // Update history: Mark correct notes green, fade out others
+      setInputHistory(prev => {
+         const newState = prev.map(n => {
+            // Check if note matches active correct note and is NOT released (held down)
+            if (activeMidiSet.has(n.midi) && !n.isReleased) {
+                return { ...n, status: 'success' as const };
+            }
+            return { ...n, isFading: true };
+         });
+         return newState;
+      });
+
+      // Remove faded items after animation
+      setTimeout(() => {
+         setInputHistory(prev => prev.filter(n => !n.isFading));
+      }, 600);
     }
   }, []);
 
@@ -231,11 +307,79 @@ const App: React.FC = () => {
     const freq = getFreq(midi);
     audioService.playNote(freq, midi);
     
-    const newActiveMidis = new Set(activeMidisRef.current);
+    const newActiveMidis = new Set<number>(activeMidisRef.current);
     newActiveMidis.add(midi);
     setActiveMidis(newActiveMidis);
 
-    // EXAM MODE LOGIC
+    // --- INPUT HISTORY LOGIC ---
+    const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const canonicalNote = NOTES[midi % 12];
+    const canonicalOctave = Math.floor(midi / 12) - 1;
+    const noteName = `${canonicalNote}${canonicalOctave}`;
+    
+    // Check if valid for IMMEDIATE feedback
+    let initialStatus: 'neutral' | 'success' = 'neutral';
+    let isExamMistake = false;
+
+    // 1. Lesson Mode Immediate Feedback
+    if (currentLesson && currentStepRef.current) {
+        const targets = currentStepRef.current.targets.map(t => normalizeNoteName(t));
+        // Strict match: Is this note part of the required chord/sequence?
+        if (targets.includes(normalizeNoteName(noteName))) {
+            initialStatus = 'success';
+        }
+    }
+    
+    // 2. Exam Mode Immediate Feedback & Error Detection
+    if (isExamModeRef.current && currentExamRef.current) {
+         const exam = currentExamRef.current;
+         const question = exam.questions[exam.currentIndex];
+         const pattern = question.pattern;
+
+         const playedMidis: number[] = Array.from(newActiveMidis);
+         
+         // Use strict subset check: can the current keys form a valid start of the pattern?
+         const isSubPattern = isPatternMatch(playedMidis, pattern, false);
+
+         if (isSubPattern) {
+             initialStatus = 'success';
+         } else {
+             // If we have played notes but they don't fit the pattern at all, it's a mistake
+             isExamMistake = true;
+         }
+    }
+    
+    const historyId = Date.now() + '-' + midi + '-' + Math.random();
+    const newHistoryNote: HistoryNote = { 
+      id: historyId, 
+      midi: midi,
+      name: noteName, 
+      status: initialStatus, 
+      isFading: false,
+      isReleased: false
+    };
+    
+    // Add note first
+    setInputHistory(prev => {
+        const updated = [...prev, newHistoryNote].slice(-10);
+        return updated;
+    });
+    
+    // Handle Exam Mistake: Reset Buffer with smooth fade
+    if (isExamMistake) {
+        setTimeout(() => {
+           // 1. Trigger Fade Out on ALL items
+           setInputHistory(prev => prev.map(n => ({ ...n, isFading: true })));
+           
+           // 2. Clear array after animation
+           setTimeout(() => {
+               setInputHistory([]);
+           }, 500);
+        }, 500); // Wait 0.5s for user to see the red/gray mistake, then fade
+    }
+    // ---------------------------
+
+    // EXAM MODE LOGIC (Validation for success)
     if (isExamModeRef.current) {
       validateExamInput(newActiveMidis);
       return;
@@ -244,13 +388,8 @@ const App: React.FC = () => {
     // LESSON MODE LOGIC
     const step = currentStepRef.current;
     if (step && !isStepCompleteRef.current) {
-      const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-      const canonicalNote = NOTES[midi % 12];
-      const canonicalOctave = Math.floor(midi / 12) - 1;
-      const canonicalName = `${canonicalNote}${canonicalOctave}`;
-
       setPlayedSequence(prev => {
-        const newSeq = [...prev, canonicalName].slice(-step.targets.length);
+        const newSeq = [...prev, noteName].slice(-step.targets.length);
         const normalizedTargets = step.targets.map(t => normalizeNoteName(t));
         const isMatch = newSeq.length === normalizedTargets.length && 
                         newSeq.every((val, index) => val === normalizedTargets[index]);
@@ -258,7 +397,7 @@ const App: React.FC = () => {
         return newSeq;
       });
     }
-  }, [validateExamInput]);
+  }, [validateExamInput, currentLesson]);
 
   const stopNote = useCallback((midi: number) => {
     audioService.stopNote(midi);
@@ -271,6 +410,34 @@ const App: React.FC = () => {
       }
       return newSet;
     });
+
+    // Handle History Note Release
+    setInputHistory(prev => {
+        // Find the specific note instance that is NOT yet released
+        // We search from end to find the most recent press of this midi
+        const index = [...prev].reverse().findIndex(n => n.midi === midi && !n.isReleased);
+        
+        if (index === -1) return prev; // Not found or already released
+
+        // Calculate real index because we reversed
+        const realIndex = prev.length - 1 - index;
+        const note = prev[realIndex];
+
+        // Trigger Fade Logic
+        setTimeout(() => {
+            setInputHistory(curr => curr.map(n => n.id === note.id ? { ...n, isFading: true } : n));
+            
+            // Remove after fade animation
+            setTimeout(() => {
+                setInputHistory(curr => curr.filter(n => n.id !== note.id));
+            }, 500); // 0.5s fade duration matches CSS duration-500
+        }, 4000); // Reduced from 7500ms to 4000ms per request
+
+        const newHistory = [...prev];
+        newHistory[realIndex] = { ...note, isReleased: true };
+        return newHistory;
+    });
+
   }, [validateExamInput]);
 
   // --- Keyboard Logic ---
@@ -507,6 +674,7 @@ const App: React.FC = () => {
           lang={lang}
           showGlossary={showGlossary}
           setShowGlossary={setShowGlossary}
+          inputHistory={inputHistory}
         />
       </div>
 
