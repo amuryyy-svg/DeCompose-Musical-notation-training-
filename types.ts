@@ -6,6 +6,14 @@ export type LocalizedContent = {
   en: string;
 };
 
+export type TermCategory = 'basics' | 'intervals' | 'scales' | 'chords' | 'harmony' | 'dynamics';
+
+export interface GlossaryItem {
+  term: LocalizedContent;
+  definition: LocalizedContent;
+  category: TermCategory;
+}
+
 export interface NoteDefinition {
   note: string; // e.g., "C"
   octave: number; // e.g., 4
@@ -41,15 +49,33 @@ export interface Lesson {
 export interface ExamQuestion {
   id: string;
   question: LocalizedContent; 
-  type: 'interval' | 'chord' | 'scale';
-  pattern: number[]; // Relative semitones
-  exampleSolution: string[]; // Concrete notes for the hint system (e.g. ["C3", "E3", "G3"])
+  type: 'interval' | 'chord' | 'scale' | 'quiz';
+  pattern: number[]; // Relative semitones (empty if quiz)
+  exampleSolution: string[]; // Concrete notes for the hint system
+  // Quiz specific props
+  options?: LocalizedContent[];
+  correctIndex?: number;
 }
 
 export interface ExamSession {
   questions: ExamQuestion[];
   currentIndex: number;
   correctAnswers: number;
+  isFinished: boolean;
+}
+
+// --- QUIZ MODE TYPES ---
+export interface QuizQuestion {
+  id: string;
+  question: LocalizedContent;
+  options: LocalizedContent[]; // Array of 4 options
+  correctIndex: number;
+}
+
+export interface QuizSession {
+  questions: QuizQuestion[];
+  currentIndex: number;
+  score: number;
   isFinished: boolean;
 }
 
